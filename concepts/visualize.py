@@ -1,7 +1,7 @@
 # visualize.py - convert lattice to graphviz dot
 
-import glob
 import os
+import glob
 
 import graphviz
 
@@ -9,45 +9,132 @@ __all__ = ['lattice', 'render_all']
 
 SORTKEYS = [lambda c: c.index]
 
-NAME_GETTERS = [lambda c: f'c{c.index:d}']
+NAME_GETTERS = [lambda c: 'c%d' % c.index]
 
 
-def lattice(lattice, filename, directory, render, view,
-            make_object_label=' '.join, make_property_label=' '.join,
-            **kwargs):
+def lattice(lattice, filename, directory, render, view,node,
+            make_object_label=' '.join, make_property_label=' '.join,**kwargs):
     """Return graphviz source for visualizing the lattice graph."""
     dot = graphviz.Digraph(name=lattice.__class__.__name__,
                            comment=repr(lattice),
                            filename=filename, directory=directory,
-                           node_attr={'shape': 'circle', 'width': '.25',
+                           node_attr={'shape': 'circle', 'width': '0.2',
                                       'style': 'filled', 'label': ''},
-                           edge_attr={'dir': 'none', 'labeldistance': '1.5',
-                                      'minlen': '2'},
+                           edge_attr={'dir': 'none', 'labeldistance': '1',
+                                      'minlen': "1",'fontsize': '10'},
                            **kwargs)
 
     sortkey = SORTKEYS[0]
     node_name = NAME_GETTERS[0]
-
+    low=[]
+    up=[]
+    place=None
     for concept in lattice._concepts:
-        name = node_name(concept)
-        dot.node(name)
+        if node==None:
+            place=None
+        elif node in concept.objects:
+            place=node_name(concept)
+            con = concept
+        elif node in concept.properties:
+            place=node_name(concept)
+            con = concept
 
-        if concept.objects:
-            dot.edge(name, name,
-                     headlabel=make_object_label(concept.objects),
-                     labelangle='270', color='transparent')
+    #場所の指定がなかった場合
+    if place==None:
+        for concept in lattice._concepts:
+            name = node_name(concept)
+            dot.node(name)
+            for c in sorted(concept.lower_neighbors, key=sortkey):
+                dot.edge(name,node_name(c),color="black")
+            if concept.objects:
+                dot.edge(name, name,
+                 headlabel=make_object_label(concept.objects),
+                 labelangle='270', color='transparent')
 
-        if concept.properties:
-            dot.edge(name, name,
-                     taillabel=make_property_label(concept.properties),
-                     labelangle='90', color='transparent')
+            if concept.properties:
+                dot.edge(name, name,
+                 taillabel=make_property_label(concept.properties),
+                 labelangle='90', color='transparent')
 
-        dot.edges((name, node_name(c))
-                  for c in sorted(concept.lower_neighbors, key=sortkey))
+    #場所の指定があった場合
+    else:
+        #場所の特定
+        name = node_name(con)
+        low.append(con)
+        up.append(con)
+        dot.node(name,color="red")
+
+        low_and_up_list=[]
+        low_and_up_name_list=[place]
+        #特定されたノードの下位概念の特定
+        while True:
+            lower_list=[]
+            for i in range(len(low)):
+                for c in sorted(low[i].lower_neighbors,key=sortkey):
+                    dot.node(node_name(c),color="blue")
+                    dot.edge(node_name(low[i]),node_name(c),color="blue")
+                    if c in lower_list:
+                        pass
+                    else:
+                        lower_list.append(c)
+                        if c not in low_and_up_name_list:
+                            low_and_up_name_list.append(node_name(c))
+
+                    low_and_up_list.append([node_name(low[i]),node_name(c)])
+            if lower_list==[]:
+                break
+            low=lower_list
+        #特定されたノードの上位概念の特定
+        while True:
+            upper_list=[]
+            for i in range(len(up)):
+                for c in sorted(up[i].upper_neighbors,key=sortkey):
+                    dot.node(node_name(c),color="blue")
+                    dot.edge(node_name(c),node_name(up[i]),color="blue")
+                    if c in upper_list:
+                        pass
+                    else:
+                        upper_list.append(c)
+                        if c  not in low_and_up_name_list:
+                            low_and_up_name_list.append(node_name(c))
+
+                    low_and_up_list.append([node_name(c),node_name(up[i])])
+
+            if upper_list==[]:
+                break
+            up=upper_list
+
+        #表示の設定(特定されたノードにつながる概念を強調して表示する)
+        for concept in lattice._concepts:
+            name = node_name(concept)
+            dot.node(name)
+            if name in low_and_up_name_list:
+                    if concept.objects:
+                        dot.edge(name, name,
+                             headlabel=make_object_label(concept.objects),
+                             labelangle='270', color='transparent')
+
+                    if concept.properties:
+                        dot.edge(name, name,
+                             taillabel=make_property_label(concept.properties),
+                             labelangle='90', color='transparent')
+            for c in sorted(concept.lower_neighbors, key=sortkey):
+                if [name,node_name(c)] not in low_and_up_list:
+                    dot.edge(name,node_name(c),color="lightgray")
+
 
     if render or view:
         dot.render(view=view)  # pragma: no cover
+
     return dot
+
+
+
+
+
+
+
+
 
 
 def render_all(filepattern='*.cxt', encoding=None,
@@ -58,7 +145,7 @@ def render_all(filepattern='*.cxt', encoding=None,
         c = concepts.load(cxtfile, encoding=encoding)
         l = c.lattice
 
-        filename = f'{os.path.splitext(cxtfile)[0]}.gv'
+        filename = '%s.gv' % os.path.splitext(cxtfile)[0]
         if directory is not None:
             filename = os.path.basename(filename)
 
